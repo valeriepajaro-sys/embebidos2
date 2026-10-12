@@ -26,11 +26,13 @@
 #include "string.h"
 #include "stdlib.h"
 #include "uart.h"
-#include "adc_x.h"
+//#include "adc_x.h"
 
 
 #include "delays.h"
 #include "BH1750.h"
+
+#include "BME280_STM32.h"
 
 
 
@@ -54,13 +56,11 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
-
 I2C_HandleTypeDef hi2c2;
 
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart1;
-
-
 
 /* USER CODE BEGIN PV */
 /*uint16_t codigo;
@@ -73,6 +73,8 @@ float v_pot, v_fuente, lux;
 uint16_t raw_luz =0;
 #define FACTOR_FUENTE 4.0f // pon 4.0f si usas un divisor 4:1
 
+float Temperature, Pressure, Humidity; // Variables para mediciones del BME280
+
 /*uint8_t contador = 0;     // va de 0 a 50
 int8_t  paso = 1;   */      // +1 sube, -1 baja*/
 
@@ -82,8 +84,8 @@ int8_t  paso = 1;   */      // +1 sube, -1 baja*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_ADC1_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -123,8 +125,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
-  MX_ADC1_Init();
   MX_I2C2_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
 uartx_write_text(&huart1,"Iniciando el programa\r\n");
@@ -132,6 +134,7 @@ uartx_write_text(&huart1,"Iniciando el programa\r\n");
 uartx_write_text(&huart1, "Iniciando el programa\r\n");
 BH1750_init();   // obligatorio: también inicia los delay
 
+BME280_Config(OSRS_2, OSRS_16, OSRS_1, MODE_FORCED, T_SB_0p5, IIR_16);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -157,14 +160,14 @@ BH1750_init();   // obligatorio: también inicia los delay
 
 
     // 1. ADC: potenciometro y fuente
-    ADC_Read_All(&hadc1, adc1_canales, adc1_codigo);
+   /* ADC_Read_All(&hadc1, adc1_canales, adc1_codigo);*/
 
     // Potenciometro
-    v_pot = adc1_codigo[0] * 3.3f / 4095.0f;
+    /*v_pot = adc1_codigo[0] * 3.3f / 4095.0f;
 
     // Fuente de 12 V
     // La fuente está conectada al tercer canal -> adc1_codigo[2]
-    v_fuente = adc1_codigo[2] * 3.3f / 4095.0f * FACTOR_FUENTE;
+    v_fuente = adc1_codigo[2] * 3.3f / 4095.0f * FACTOR_FUENTE;*/
 
 
     // 2. BH1750
@@ -178,14 +181,23 @@ BH1750_init();   // obligatorio: también inicia los delay
 
 
     // 3. Enviar datos por UART
-    sprintf(buffer,
+    /*sprintf(buffer,
             "Pot: %.2f V | Fuente: %.2f V | Luz: %u lx\r\n",
             v_pot,
             v_fuente,
             raw_luz);
 
-    uartx_write_text(&huart1, buffer);
+    uartx_write_text(&huart1, buffer);*/
 
+    BME280_WakeUP(); // Poner en modo FORCED para realizar una medición
+HAL_Delay(100);  // Esperar a que finalice la medición
+
+BME280_Measure(); // Leer los datos del BME280
+
+sprintf(buffer, "Temp: %.2f °C | Hum: %.2f %%\r\n |Luz: %u lx\r\n",
+        Temperature, Humidity, raw_luz);
+
+    uartx_write_text(&huart1, buffer);
     HAL_Delay(1000);
 }
 
@@ -263,76 +275,6 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief ADC1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_ADC1_Init(void)
-{
-
-  /* USER CODE BEGIN ADC1_Init 0 */
-
-  /* USER CODE END ADC1_Init 0 */
-
-  ADC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN ADC1_Init 1 */
-
-  /* USER CODE END ADC1_Init 1 */
-
-  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
-  hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
-  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc1.Init.ScanConvMode = ENABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 3;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-  */
-  sConfig.Channel = ADC_CHANNEL_6;
-  sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-  */
-  sConfig.Channel = ADC_CHANNEL_5;
-  sConfig.Rank = 2;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-  */
-  sConfig.Channel = ADC_CHANNEL_7;
-  sConfig.Rank = 3;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN ADC1_Init 2 */
-
-  /* USER CODE END ADC1_Init 2 */
-
-}
-
-/**
   * @brief I2C2 Initialization Function
   * @param None
   * @retval None
@@ -363,6 +305,63 @@ static void MX_I2C2_Init(void)
   /* USER CODE BEGIN I2C2_Init 2 */
 
   /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
 
 }
 
